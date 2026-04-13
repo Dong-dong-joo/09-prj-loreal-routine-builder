@@ -2,108 +2,164 @@ export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, {
-        headers: corsHeaders(),
+        headers: getCorsHeaders()
       });
     }
 
     if (request.method !== "POST") {
-      return new Response("Method Not Allowed", {
-        status: 405,
-        headers: corsHeaders(),
-      });
+      return jsonResponse(
+        { error: "Method not allowed." },
+        405
+      );
     }
 
     try {
       const body = await request.json();
-      const { messages, selectedProducts, useWebSearch } = body;
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const selectedProducts = Array.isArray(body.selectedProducts)
+        ? body.selectedProducts
+        : [];
+      const useWebSearch = Boolean(body.useWebSearch);
+
+      if (!env.OPENAI_API_KEY) {
+        return jsonResponse(
+          { error: "Missing OPENAI_API_KEY in Worker environment variables." },
+          500
+        );
+      }
 
       const systemMessage = {
         role: "system",
         content:
-          "You are a helpful beauty and skincare assistant for a L'Oréal Routine Builder project. Only answer topics related to skincare, beauty, makeup, haircare, fragrance, routines, or the selected products. If the user asks something unrelated, politely redirect them.",
+          "You are a helpful beauty and skincare assistant for a L'Oréal Routine Builder project. Only answer questions related to skincare, haircare, makeup, fragrance, beauty routines, and the selected products. Keep answers clear, practical, and personalized."
       };
 
       const selectedProductsMessage = {
         role: "system",
-        content: `Selected products data: ${JSON.stringify(selectedProducts || [])}`,
+        content: `Selected products: ${JSON.stringify(selectedProducts)}`
       };
 
-      const finalMessages = [
-        systemMessage,
-        selectedProductsMessage,
-        ...(messages || []),
-      ];
+      const safeMessages = [systemMessage, selectedProductsMessage, ...messages]
+        .filter(
+          (msg) =>
+            msg &&
+            typeof msg.role === "string" &&
+            typeof msg.content === "string" &&
+            msg.content.trim() !== ""
+        )
+        .map((msg) => ({
+          role: msg.role,
+          content: [{ type: "input_text", text: msg.content }]
+        }));
 
-      const model = useWebSearch ? "gpt-5.4-thinking" : "gpt-5.4-thinking";
+      const payload = {
+        model: "gpt-5.4-thinking",
+        input: safeMessages
+      };
 
-      const openAIResponse = await fetch(
-        "https://api.openai.com/v1/responses",
-        {
+      if (useWebSearch) {
+        payload.tools = [{ type: "web_search_preview" }];
+      }
+
+      let openAIResponse = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      let data = await openAIResponse.json();
+
+      /* If web search tool caused a problem, retry once without it */
+      if (!openAIResponse.ok && useWebSearch) {
+        const retryPayload = {
+          model: "gpt-5.4-thinking",
+          input: safeMessages
+        };
+
+        openAIResponse = await fetch("https://api.openai.com/v1/responses", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+            Authorization: `Bearer ${env.OPENAI_API_KEY}`
           },
-          body: JSON.stringify({
-            model,
-            input: finalMessages.map((message) => ({
-              role: message.role,
-              content: [{ type: "input_text", text: message.content }],
-            })),
-          }),
-        },
-      );
+          body: JSON.stringify(retryPayload)
+        });
 
-      const data = await openAIResponse.json();
+        data = await openAIResponse.json();
+      }
 
-      let reply = "Sorry, I could not generate a response.";
+      if (!openAIResponse.ok) {
+        return jsonResponse(
+          {
+            error:
+              data?.error?.message ||
+              "OpenAI request failed."
+          },
+          openAIResponse.status
+        );
+      }
 
-      if (data.output && Array.isArray(data.output)) {
-        const texts = [];
+      let reply = "";
+
+      if (typeof data.output_text === "string" && data.output_text.trim()) {
+        reply = data.output_text.trim();
+      }
+
+      if (!reply && Array.isArray(data.output)) {
+        const collected = [];
 
         for (const item of data.output) {
-          if (!item.content) continue;
+          if (!item || !Array.isArray(item.content)) continue;
 
           for (const part of item.content) {
-            if (part.type === "output_text" && part.text) {
-              texts.push(part.text);
+            if (part.type === "output_text" && typeof part.text === "string") {
+              collected.push(part.text);
             }
           }
         }
 
-        if (texts.length > 0) {
-          reply = texts.join("\n");
-        }
+        reply = collected.join("\n").trim();
       }
 
-      return new Response(JSON.stringify({ reply }), {
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders(),
-        },
-      });
-    } catch (error) {
-      return new Response(
-        JSON.stringify({
-          error: "Something went wrong.",
-          details: error.message,
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-            ...corsHeaders(),
+      if (!reply) {
+        return jsonResponse(
+          {
+            error:
+              "OpenAI returned a response, but no readable text reply was found."
           },
+          500
+        );
+      }
+
+      return jsonResponse({ reply }, 200);
+    } catch (error) {
+      return jsonResponse(
+        {
+          error: error.message || "Unexpected Worker error."
         },
+        500
       );
     }
-  },
+  }
 };
 
-function corsHeaders() {
+function getCorsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type"
   };
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      ...getCorsHeaders()
+    }
+  });
 }

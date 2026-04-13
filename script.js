@@ -21,8 +21,8 @@ let conversationHistory = [
   {
     role: "system",
     content:
-      "You are a helpful beauty and skincare assistant. Only answer questions related to skincare, haircare, makeup, fragrance, beauty routines, or the selected products. Keep answers clear, personalized, and practical.",
-  },
+      "You are a helpful beauty and skincare assistant. Only answer questions related to skincare, haircare, makeup, fragrance, beauty routines, or the selected products. Keep answers clear, practical, and personalized."
+  }
 ];
 
 function saveSelections() {
@@ -35,11 +35,7 @@ function saveRTLMode(isRTL) {
 
 function loadRTLMode() {
   const saved = JSON.parse(localStorage.getItem(RTL_KEY));
-  if (saved) {
-    document.documentElement.setAttribute("dir", "rtl");
-  } else {
-    document.documentElement.setAttribute("dir", "ltr");
-  }
+  document.documentElement.setAttribute("dir", saved ? "rtl" : "ltr");
 }
 
 function addChatMessage(role, text) {
@@ -59,7 +55,7 @@ function setInitialChatMessage() {
   if (!chatWindow.innerHTML.trim()) {
     addChatMessage(
       "assistant",
-      "Select products, then click Generate Routine. After that, you can ask follow-up questions here.",
+      "Select products, then click Generate Routine. After that, you can ask follow-up questions here."
     );
   }
 }
@@ -73,10 +69,10 @@ async function loadProducts() {
     renderSelectedProducts();
     updateGenerateButtonState();
   } catch (error) {
+    console.error("Error loading products:", error);
     productsContainer.innerHTML = `
       <div class="empty-message">Could not load products.</div>
     `;
-    console.error("Error loading products:", error);
   }
 }
 
@@ -123,13 +119,21 @@ function renderProducts() {
           </div>
 
           <div class="product-actions">
-            <button class="card-btn select-btn ${
-              isSelected ? "selected-btn" : ""
-            }" data-action="select" data-id="${product.id}" type="button">
+            <button
+              class="card-btn select-btn ${isSelected ? "selected-btn" : ""}"
+              data-action="select"
+              data-id="${product.id}"
+              type="button"
+            >
               ${isSelected ? "Unselect" : "Select"}
             </button>
 
-            <button class="card-btn desc-btn" data-action="desc" data-id="${product.id}" type="button">
+            <button
+              class="card-btn desc-btn"
+              data-action="desc"
+              data-id="${product.id}"
+              type="button"
+            >
               Description
             </button>
           </div>
@@ -145,7 +149,7 @@ function renderProducts() {
 
 function renderSelectedProducts() {
   const selectedProducts = allProducts.filter((product) =>
-    selectedProductIds.includes(product.id),
+    selectedProductIds.includes(product.id)
   );
 
   if (selectedProducts.length === 0) {
@@ -160,7 +164,7 @@ function renderSelectedProducts() {
           <span>${product.brand} - ${product.name}</span>
           <button class="remove-chip" data-remove-id="${product.id}" type="button">×</button>
         </div>
-      `,
+      `
     )
     .join("");
 }
@@ -199,33 +203,39 @@ function clearAllSelections() {
 }
 
 function getSelectedProductsData() {
-  return allProducts.filter((product) =>
-    selectedProductIds.includes(product.id),
-  );
+  return allProducts.filter((product) => selectedProductIds.includes(product.id));
 }
 
-async function callWorker(
-  messages,
-  selectedProducts = [],
-  useWebSearch = false,
-) {
+async function callWorker(messages, selectedProducts = [], useWebSearch = false) {
   const response = await fetch(WORKER_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
       messages,
       selectedProducts,
-      useWebSearch,
-    }),
+      useWebSearch
+    })
   });
 
-  if (!response.ok) {
-    throw new Error("Worker request failed");
+  let data = {};
+
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error("Worker did not return valid JSON.");
   }
 
-  return response.json();
+  if (!response.ok) {
+    throw new Error(data.error || "Worker request failed.");
+  }
+
+  if (!data.reply || !data.reply.trim()) {
+    throw new Error(data.error || "No reply returned from Worker.");
+  }
+
+  return data;
 }
 
 async function generateRoutine() {
@@ -237,43 +247,50 @@ async function generateRoutine() {
   }
 
   const productSummary = selectedProducts.map((product) => ({
+    id: product.id,
     name: product.name,
     brand: product.brand,
     category: product.category,
-    description: product.description,
+    description: product.description
   }));
 
   addChatMessage("assistant", "Generating your routine...");
 
   const routinePrompt = `
 Build a personalized beauty routine using ONLY these selected products.
-Explain the order of use, morning vs night if relevant, and simple tips.
-If a product does not clearly fit, say so.
+
+Requirements:
+- Use only the selected products listed below.
+- Explain the best order to use them.
+- Separate morning and night if relevant.
+- If a product does not clearly fit, say so.
+- Keep the routine clear and easy to follow.
+
 Selected products:
 ${JSON.stringify(productSummary, null, 2)}
   `.trim();
 
   conversationHistory.push({
     role: "user",
-    content: routinePrompt,
+    content: routinePrompt
   });
 
   try {
-    const data = await callWorker(conversationHistory, productSummary, true);
+    const data = await callWorker(conversationHistory, productSummary, false);
+    const reply = data.reply;
 
-    const reply = data.reply || "Sorry, I could not generate a routine.";
     conversationHistory.push({
       role: "assistant",
-      content: reply,
+      content: reply
     });
 
     chatWindow.innerHTML = "";
     addChatMessage("assistant", reply);
   } catch (error) {
-    console.error(error);
+    console.error("Generate routine error:", error);
     addChatMessage(
       "assistant",
-      "Sorry, something went wrong while generating the routine.",
+      `Routine generation failed: ${error.message}`
     );
   }
 }
@@ -285,24 +302,24 @@ async function sendFollowUpQuestion(question) {
 
   conversationHistory.push({
     role: "user",
-    content: question,
+    content: question
   });
 
   try {
-    const data = await callWorker(conversationHistory, selectedProducts, true);
-    const reply = data.reply || "Sorry, I could not answer that.";
+    const data = await callWorker(conversationHistory, selectedProducts, false);
+    const reply = data.reply;
 
     conversationHistory.push({
       role: "assistant",
-      content: reply,
+      content: reply
     });
 
     addChatMessage("assistant", reply);
   } catch (error) {
-    console.error(error);
+    console.error("Follow-up error:", error);
     addChatMessage(
       "assistant",
-      "Sorry, something went wrong while getting the response.",
+      `Follow-up failed: ${error.message}`
     );
   }
 }
@@ -333,9 +350,7 @@ selectedProductsList.addEventListener("click", (event) => {
 
 categoryFilter.addEventListener("change", renderProducts);
 productSearch.addEventListener("input", renderProducts);
-
 generateRoutineBtn.addEventListener("click", generateRoutine);
-
 clearSelectionsBtn.addEventListener("click", clearAllSelections);
 
 chatForm.addEventListener("submit", async (event) => {
@@ -351,7 +366,6 @@ chatForm.addEventListener("submit", async (event) => {
 rtlToggle.addEventListener("click", () => {
   const currentDir = document.documentElement.getAttribute("dir");
   const isRTL = currentDir !== "rtl";
-
   document.documentElement.setAttribute("dir", isRTL ? "rtl" : "ltr");
   saveRTLMode(isRTL);
 });
