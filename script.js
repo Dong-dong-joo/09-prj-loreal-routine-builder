@@ -13,7 +13,7 @@ const STORAGE_KEY = "loreal-selected-products";
 const RTL_KEY = "loreal-rtl-mode";
 
 /* IMPORTANT: Replace this with your deployed Cloudflare Worker URL */
-const WORKER_URL = "https://YOUR-WORKER-URL.workers.dev";
+const WORKER_URL = "https://calm-feather-1e24.dkim234.workers.dev";
 
 let allProducts = [];
 let selectedProductIds = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -21,8 +21,8 @@ let conversationHistory = [
   {
     role: "system",
     content:
-      "You are a helpful beauty and skincare assistant. Only answer questions related to skincare, haircare, makeup, fragrance, beauty routines, or the selected products. Keep answers clear, personalized, and practical."
-  }
+      "You are a helpful beauty and skincare assistant. Only answer questions related to skincare, haircare, makeup, fragrance, beauty routines, or the selected products. Keep answers clear, personalized, and practical.",
+  },
 ];
 
 function saveSelections() {
@@ -59,7 +59,7 @@ function setInitialChatMessage() {
   if (!chatWindow.innerHTML.trim()) {
     addChatMessage(
       "assistant",
-      "Select products, then click Generate Routine. After that, you can ask follow-up questions here."
+      "Select products, then click Generate Routine. After that, you can ask follow-up questions here.",
     );
   }
 }
@@ -145,7 +145,7 @@ function renderProducts() {
 
 function renderSelectedProducts() {
   const selectedProducts = allProducts.filter((product) =>
-    selectedProductIds.includes(product.id)
+    selectedProductIds.includes(product.id),
   );
 
   if (selectedProducts.length === 0) {
@@ -160,7 +160,7 @@ function renderSelectedProducts() {
           <span>${product.brand} - ${product.name}</span>
           <button class="remove-chip" data-remove-id="${product.id}" type="button">×</button>
         </div>
-      `
+      `,
     )
     .join("");
 }
@@ -199,20 +199,26 @@ function clearAllSelections() {
 }
 
 function getSelectedProductsData() {
-  return allProducts.filter((product) => selectedProductIds.includes(product.id));
+  return allProducts.filter((product) =>
+    selectedProductIds.includes(product.id),
+  );
 }
 
-async function callWorker(messages, selectedProducts = [], useWebSearch = false) {
+async function callWorker(
+  messages,
+  selectedProducts = [],
+  useWebSearch = false,
+) {
   const response = await fetch(WORKER_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       messages,
       selectedProducts,
-      useWebSearch
-    })
+      useWebSearch,
+    }),
   });
 
   if (!response.ok) {
@@ -234,7 +240,7 @@ async function generateRoutine() {
     name: product.name,
     brand: product.brand,
     category: product.category,
-    description: product.description
+    description: product.description,
   }));
 
   addChatMessage("assistant", "Generating your routine...");
@@ -249,7 +255,7 @@ ${JSON.stringify(productSummary, null, 2)}
 
   conversationHistory.push({
     role: "user",
-    content: routinePrompt
+    content: routinePrompt,
   });
 
   try {
@@ -258,7 +264,7 @@ ${JSON.stringify(productSummary, null, 2)}
     const reply = data.reply || "Sorry, I could not generate a routine.";
     conversationHistory.push({
       role: "assistant",
-      content: reply
+      content: reply,
     });
 
     chatWindow.innerHTML = "";
@@ -267,7 +273,7 @@ ${JSON.stringify(productSummary, null, 2)}
     console.error(error);
     addChatMessage(
       "assistant",
-      "Sorry, something went wrong while generating the routine."
+      "Sorry, something went wrong while generating the routine.",
     );
   }
 }
@@ -279,7 +285,7 @@ async function sendFollowUpQuestion(question) {
 
   conversationHistory.push({
     role: "user",
-    content: question
+    content: question,
   });
 
   try {
@@ -288,7 +294,7 @@ async function sendFollowUpQuestion(question) {
 
     conversationHistory.push({
       role: "assistant",
-      content: reply
+      content: reply,
     });
 
     addChatMessage("assistant", reply);
@@ -296,7 +302,7 @@ async function sendFollowUpQuestion(question) {
     console.error(error);
     addChatMessage(
       "assistant",
-      "Sorry, something went wrong while getting the response."
+      "Sorry, something went wrong while getting the response.",
     );
   }
 }
